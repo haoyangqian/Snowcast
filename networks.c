@@ -18,19 +18,17 @@ void set_cmd(unsigned char* buf,const struct cmd_command* cmd){
 void get_welcome(const char *buf,struct reply_welcome* wel){
     wel->replyType = 0;
     uint16_t n;
-    memcpy(&n,buf+1,sizeof(u_int16_t));
+    memcpy(&n,buf+1,sizeof(uint16_t));
     n= ntohs(n);
     wel->numStations = n;
 }
 
-void get_announce(const char *buf,struct reply_Announce* anc){
-    anc->replyType = 1;
-    int songnameSize;
-    char songname[songnameSize];
-    memcpy(&songnameSize,buf+1,sizeof(u_int16_t));
-    memcpy(&songname,buf+3,songnameSize);
-    anc->songnameSize = songnameSize;
-    anc->songname = &songname;
+void get_String(const char *buf,struct reply_String* str){
+    memcpy(&str->replyType,buf,sizeof(uint8_t));
+    memcpy(&str->stringSize,buf+1,sizeof(uint8_t));
+    str->stringContent = (char*) malloc(str->stringSize+1);
+    memcpy(str->stringContent,buf+2,str->stringSize);
+    str->stringContent[str->stringSize]='\0';
 }
 
 int recvIntArg(int *num,char* str){

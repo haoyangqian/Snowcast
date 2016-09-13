@@ -7,9 +7,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <time.h>
 #include "networks.h"
 
-/*
 
 int open_client(uint16_t udpPort){
     struct sockaddr_in myaddr;
@@ -34,7 +34,7 @@ int open_client(uint16_t udpPort){
 void snowcast_listener(uint16_t udpPort){
     int clientfd;
     if((clientfd = open_client(udpPort)) < 0){
-        error("Error:Fail to open client socket");
+        perror("Error:Fail to open client socket");
     }
 
     struct sockaddr_in servadd;
@@ -42,6 +42,8 @@ void snowcast_listener(uint16_t udpPort){
 
     int buflen = BYTES_TO_RECV;
     char buffer[buflen];
+
+
     while(1){
            int bytes;
            bytes = recvfrom(clientfd,buffer,buflen,0,(struct sockaddr_in*) &servadd,&servadd_len);
@@ -59,6 +61,7 @@ void snowcast_listener(uint16_t udpPort){
                close(clientfd);
                exit(1);
            }
+
     }
 
 }
@@ -79,6 +82,6 @@ int main(int argc,char* argv[]){
     }
 
     snowcast_listener(udpPort);
+    return 0;
 }
 
-*/

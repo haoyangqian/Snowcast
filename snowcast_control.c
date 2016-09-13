@@ -8,6 +8,7 @@
 #include <sys/time.h>
 #include <ctype.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include "networks.h"
 
@@ -19,11 +20,13 @@ void error(const char *msg){
   exit(0);
 }
 
-int send_command(int fd,struct cmd_command* cmd){
+int send_hello(int fd,uint16_t udpPort){
+    struct cmd_command hello;
+    hello.commandType = 0;
+    hello.content = udpPort;
     int buflen = sizeof(uint8_t)+sizeof(uint16_t);
     char buf[buflen];
-    set_cmd(buf,cmd);
-
+    set_cmd(buf,&hello);
     if(send(fd,buf,buflen,0) < 0){
         perror("Error:send()");
         close(fd);
@@ -32,18 +35,19 @@ int send_command(int fd,struct cmd_command* cmd){
     return 0;
 }
 
-int send_hello(int fd,uint16_t udpPort){
-    struct cmd_hello hello;
-    hello.commandType = 0;
-    hello.udpPort = udpPort;
-    return send_command(fd,(const struct cmd_command*) &hello);
-}
-
-int send_setsation(int fd,uint16_t stationNumber){
-    struct cmd_setstaion setstation;
+int send_setstation(int fd,uint16_t stationNumber){
+    struct cmd_command setstation;
     setstation.commandType = 1;
-    setstation.stationNumber = stationNumber;
-    return send_command(fd,(const struct cmd_command*) &setstation);
+    setstation.content = stationNumber;
+    int buflen = sizeof(uint8_t)+sizeof(uint16_t);
+    char buf[buflen];
+    set_cmd(buf,&setstation);
+    if(send(fd,buf,buflen,0) < 0){
+        perror("Error:send()");
+        close(fd);
+        exit(1);
+    }
+    return 0;
 }
 
 int recv_welcome(int fd,int *n_stations){
@@ -65,8 +69,7 @@ int recv_welcome(int fd,int *n_stations){
     return 0;
 }
 
-int recv_announce(int fd,char *songname){
-    struct reply_Announce anc;
+int recv_String(int fd,struct reply_String* string){
     int buflen = BUF_LEN_MAX;
     char buf[buflen];
     memset(buf,0,sizeof(buf));
@@ -80,9 +83,7 @@ int recv_announce(int fd,char *songname){
         close(fd);
         exit(1);
     }
-    get_announce(buf,&anc);
-    songname = anc.songname;
-
+    get_String(buf,string);
     return 0;
 }
 
@@ -106,11 +107,14 @@ int open_client(char* hostname,int ServerPort){
     if(connect(sockfd,(struct sockaddr *) &server_addr,sizeof(server_addr)) < 0){
         error("ERROR connecting");
     }
+
+    printf("%s -> %s \n",hostname,inet_ntoa(server_addr.sin_addr));
     return sockfd;
 }
 
 void snowcast_control(const char* hostname,int ServerPort,int udpPort){
     int sockfd,n_stations,state;
+    struct reply_String str;
     state = REP_WEL;
     sockfd = open_client(hostname,ServerPort);
     printf("Send Hello Command to the Server\n");
@@ -142,9 +146,16 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                     state = REP_ANC;
                 }
                 else if(state == REP_ANC){
-                    char *songname;
-                    recv_announce(sockfd,songname);
-                    printf("New song announced: %s",songname);
+                    recv_String(sockfd,&str);
+                    if(str.replyType == 1){
+                        printf("New song announced: %s\n> ",str.stringContent);
+                        fflush(stdout);
+                    }
+                    else if(str.replyType == 2){
+                        printf("INVALID_COMMAND_REPLY:%s\n",str.stringContent);
+                        exit(1);
+                    }
+
                 }
             }
             else if(FD_ISSET(fileno(stdin),&readfd)){
@@ -152,16 +163,14 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                 read(fileno(stdin),&c,1);
                 if(c=='q'){
                     printf("Quit.Goodbye.\n");
+                    exit(0);
                 }
-                else if(c=='0'){
-                    if((c-'0') >= n_stations || (c-'0') < 0){
-                        perror("Error:Wrong station number.Should be 0 - (stations-1)\n");
-                    }
-                    else{
-                        send_setsation(sockfd,c-'0');
+                else if(isdigit(c)){
+                        send_setstation(sockfd,c-'0');
                         printf("Waiting for an announce...\n");
-                    }
+
                 }
+
             }
         }
     }
@@ -183,9 +192,6 @@ int main(int argc,char* argv[]){
     }
 
     snowcast_control(argv[1],ServerPort,udpPort);
-
-
-
 
     return 0;
 }

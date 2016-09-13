@@ -11,19 +11,10 @@
 #define BYTES_TO_RECV 1024
 #define BUF_LEN_MAX 512
 
+//struct for hello and setstation
 struct cmd_command{
     uint8_t commandType;
     uint16_t content;
-};
-
-struct cmd_hello{
-    uint8_t   commandType;
-    uint16_t  udpPort;
-};
-
-struct cmd_setstaion{
-    uint8_t   commandType;
-    uint16_t  stationNumber;
 };
 
 struct reply_welcome{
@@ -31,17 +22,13 @@ struct reply_welcome{
     uint16_t numStations;
 };
 
-struct reply_Announce{
+//struct for Announce and InvalidCommand
+struct reply_String{
     uint8_t replyType;
-    uint8_t songnameSize;
-    char*    songname;
+    uint8_t stringSize;
+    char*   stringContent;
 };
 
-struct reply_InvalidCommand{
-    uint8_t replyType;
-    uint8_t replyStringSize;
-    char*    replyString;
-};
 
 // struct hostent {
 //     char    *h_name;        /* official name of host */
@@ -68,6 +55,6 @@ void set_cmd(unsigned char* buf,const struct cmd_command* cmd);
 
 void get_welcome(const char *buf,struct reply_welcome* wel);
 
-void get_announce(const char *buf,struct reply_Announce* anc);
+void get_String(const char *buf,struct reply_String* str);
 
 #endif // NETWORKS_H
