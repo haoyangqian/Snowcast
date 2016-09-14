@@ -10,7 +10,7 @@
 #include <time.h>
 #include "networks.h"
 
-
+/*
 int open_client(uint16_t udpPort){
     struct sockaddr_in myaddr;
     int sockfd;
@@ -24,7 +24,7 @@ int open_client(uint16_t udpPort){
     myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     myaddr.sin_port = htons(udpPort);
 
-    if(bind(sockfd,(struct sockaddr_in*) &myaddr,sizeof(myaddr)) < 0){
+    if(bind(sockfd,(struct sockaddr*) &myaddr,sizeof(myaddr)) < 0){
         perror("bind failed");
         return -1;
     }
@@ -46,7 +46,7 @@ void snowcast_listener(uint16_t udpPort){
 
     while(1){
            int bytes;
-           bytes = recvfrom(clientfd,buffer,buflen,0,(struct sockaddr_in*) &servadd,&servadd_len);
+           bytes = recvfrom(clientfd,buffer,buflen,0,(struct sockaddr*) &servadd,&servadd_len);
 
            if(bytes < 0){
                perror("Error:recv from server");
@@ -73,7 +73,7 @@ int main(int argc,char* argv[]){
     }
     int udpPort;
     if(recvIntArg(&udpPort,argv[1]) < 0){
-        error("ERROR,wrong udpPort.\n");
+        perror("ERROR,wrong udpPort.\n");
     }
 
     if(udpPort > 65535 || udpPort < 2000){
@@ -84,4 +84,4 @@ int main(int argc,char* argv[]){
     snowcast_listener(udpPort);
     return 0;
 }
-
+*/

@@ -29,7 +29,6 @@ struct reply_String{
     char*   stringContent;
 };
 
-
 // struct hostent {
 //     char    *h_name;        /* official name of host */
 //     char    **h_aliases;    /* alias list */
@@ -51,9 +50,11 @@ struct reply_String{
 
 int recvIntArg(int *num,char* str);
 
-void set_cmd(unsigned char* buf,const struct cmd_command* cmd);
+void set_cmd(char* buf,const struct cmd_command* cmd);
 
 void get_welcome(const char *buf,struct reply_welcome* wel);
+
+void get_hello(const char *buf,struct cmd_command* hello);
 
 void get_String(const char *buf,struct reply_String* str);
 

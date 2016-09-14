@@ -9,7 +9,7 @@
 #include <netdb.h>
 #include "networks.h"
 
-void set_cmd(unsigned char* buf,const struct cmd_command* cmd){
+void set_cmd(char* buf,const struct cmd_command* cmd){
     *buf = cmd->commandType;
     uint16_t content = htons(cmd->content);
     memcpy(buf+1,&content,sizeof(uint16_t));
@@ -21,6 +21,14 @@ void get_welcome(const char *buf,struct reply_welcome* wel){
     memcpy(&n,buf+1,sizeof(uint16_t));
     n= ntohs(n);
     wel->numStations = n;
+}
+
+void get_hello(const char *buf,struct cmd_command* hello){
+    memcpy(&hello->commandType,buf,sizeof(uint8_t));
+    uint16_t n;
+    memcpy(&n,buf+1,sizeof(uint16_t));
+    n= ntohs(n);
+    hello->content = n;
 }
 
 void get_String(const char *buf,struct reply_String* str){

@@ -64,6 +64,11 @@ int recv_welcome(int fd,int *n_stations){
         close(fd);
         exit(1);
     }
+    else if(bytes == 0){
+        perror("Error:Server closed.\n");
+        close(fd);
+        exit(1);
+    }
     get_welcome(buf,&welcome);
     *n_stations = welcome.numStations;
     return 0;
@@ -79,7 +84,12 @@ int recv_String(int fd,struct reply_String* string){
     bytes = recv(fd,buf,buflen,0);
 
     if(bytes < 0){
-        perror("Error:recv()");
+        perror("Error:recv()\n");
+        close(fd);
+        exit(1);
+    }
+    else if(bytes == 0){
+        perror("Error:Server closed.\n");
         close(fd);
         exit(1);
     }
@@ -87,8 +97,7 @@ int recv_String(int fd,struct reply_String* string){
     return 0;
 }
 
-
-int open_client(char* hostname,int ServerPort){
+int open_client(const char* hostname,int ServerPort){
     struct sockaddr_in server_addr;
     struct hostent *server;
     int sockfd;
@@ -124,15 +133,15 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
 
     fd_set readfd;
     struct timeval timeout;
-    int maxfd = sockfd;
-    if(fileno(stdin) > maxfd) maxfd = fileno(stdin);
+    timeout.tv_sec = 5;
+    int maxfd = sockfd > fileno(stdin) ? sockfd : fileno(stdin);
 
 
     while(1){
         FD_ZERO(&readfd);
         FD_SET(sockfd,&readfd);
         FD_SET(fileno(stdin),&readfd);
-        int ret = select(maxfd+1,&readfd,NULL,NULL,NULL);
+        int ret = select(maxfd+1,&readfd,NULL,NULL,&timeout);
         if(ret == -1){
             perror("Error:select error.\n");
             exit(1);
@@ -143,7 +152,6 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                     recv_welcome(sockfd,&n_stations);
                     printf("> Receive WELCOME message.The station numbers are %d\n> ",n_stations);
                     fflush(stdout);
-                    state = REP_ANC;
                 }
                 else if(state == REP_ANC){
                     recv_String(sockfd,&str);
@@ -159,18 +167,25 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                 }
             }
             else if(FD_ISSET(fileno(stdin),&readfd)){
-                char c;
-                read(fileno(stdin),&c,1);
+                int c = fgetc(stdin);
                 if(c=='q'){
                     printf("Quit.Goodbye.\n");
                     exit(0);
                 }
-                else if(isdigit(c)){
-                        send_setstation(sockfd,c-'0');
-                        printf("Waiting for an announce...\n");
-
+                ungetc(c,stdin);
+                char buffer[BUF_LEN_MAX];
+                fgets(buffer,sizeof(buffer),stdin);
+                int num;
+                if(recvIntArg(&num,buffer) < 0){
+                    printf("Invalid input: number or 'q' expected.\n> ");
+                    fflush(stdout);
                 }
+                else{
+                    send_setstation(sockfd,num);
+                    state = REP_ANC;
+                    printf("Waiting for an announce...\n");
 
+                }            
             }
         }
     }
@@ -195,7 +210,3 @@ int main(int argc,char* argv[]){
 
     return 0;
 }
-
-
-
-
