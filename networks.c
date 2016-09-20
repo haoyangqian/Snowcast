@@ -15,6 +15,12 @@ void set_cmd(char* buf,const struct cmd_command* cmd){
     memcpy(buf+1,&content,sizeof(uint16_t));
 }
 
+void set_String(char *buf,struct reply_String* str){
+    *buf = str->replyType;
+    *(buf+1) = str->stringSize;
+    memcpy(buf+2,str->stringContent,str->stringSize);
+}
+
 void get_welcome(const char *buf,struct reply_welcome* wel){
     wel->replyType = 0;
     uint16_t n;
@@ -23,12 +29,12 @@ void get_welcome(const char *buf,struct reply_welcome* wel){
     wel->numStations = n;
 }
 
-void get_hello(const char *buf,struct cmd_command* hello){
-    memcpy(&hello->commandType,buf,sizeof(uint8_t));
+void get_cmd(struct cmd_command* cmd,const char *buf){
+    memcpy(&cmd->commandType,buf,sizeof(uint8_t));
     uint16_t n;
     memcpy(&n,buf+1,sizeof(uint16_t));
     n= ntohs(n);
-    hello->content = n;
+    cmd->content = n;
 }
 
 void get_String(const char *buf,struct reply_String* str){

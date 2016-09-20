@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 
 #define REP_WEL 1
@@ -29,6 +32,31 @@ struct reply_String{
     char*   stringContent;
 };
 
+struct song_table{
+    char** songname_table;
+    uint16_t numStations;
+};
+
+struct client_info{
+    int    clientfd;
+    int    state;
+    uint16_t udpPort;
+    struct station_info* station;
+    struct sockaddr_in udp_addr;
+    struct sockaddr_in cli_addr;
+    struct client_info* next;
+};
+
+
+struct station_info{
+    int station_id;
+    int udpfd;
+    const char* songname;
+    FILE* song;
+    struct client_info* clients;
+
+};
+
 // struct hostent {
 //     char    *h_name;        /* official name of host */
 //     char    **h_aliases;    /* alias list */
@@ -52,9 +80,11 @@ int recvIntArg(int *num,char* str);
 
 void set_cmd(char* buf,const struct cmd_command* cmd);
 
+void set_String(char *buf,struct reply_String* str);
+
 void get_welcome(const char *buf,struct reply_welcome* wel);
 
-void get_hello(const char *buf,struct cmd_command* hello);
+void get_cmd(struct cmd_command* cmd,const char *buf);
 
 void get_String(const char *buf,struct reply_String* str);
 

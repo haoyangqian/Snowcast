@@ -14,7 +14,7 @@
 
 
 
-
+/*
 void error(const char *msg){
   perror(msg);
   exit(0);
@@ -111,7 +111,7 @@ int open_client(const char* hostname,int ServerPort){
     }
     memset((char *) &server_addr, 0 ,sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    memcpy((char *)&server_addr.sin_addr.s_addr,(char *)server->h_addr,server->h_length);
+    memcpy((char *)&server_addr.sin_addr.s_addr,(char *)server->h_addr_list[0],server->h_length);
     server_addr.sin_port = htons(ServerPort);
     if(connect(sockfd,(struct sockaddr *) &server_addr,sizeof(server_addr)) < 0){
         error("ERROR connecting");
@@ -159,7 +159,7 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                         printf("New song announced: %s\n> ",str.stringContent);
                         fflush(stdout);
                     }
-                    else if(str.replyType == 2){
+                    else{
                         printf("INVALID_COMMAND_REPLY:%s\n",str.stringContent);
                         exit(1);
                     }
@@ -210,3 +210,5 @@ int main(int argc,char* argv[]){
 
     return 0;
 }
+
+*/
