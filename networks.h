@@ -12,7 +12,11 @@
 #define REP_ANC 2
 
 #define BYTES_TO_RECV 1024
+#define BYTES_PER_SEC 16*1024
+#define FREQUENCY 16
 #define BUF_LEN_MAX 512
+
+#define NANO_PER_SEC 1000000000
 
 //struct for hello and setstation
 struct cmd_command{
@@ -30,11 +34,6 @@ struct reply_String{
     uint8_t replyType;
     uint8_t stringSize;
     char*   stringContent;
-};
-
-struct song_table{
-    char** songname_table;
-    uint16_t numStations;
 };
 
 struct client_info{

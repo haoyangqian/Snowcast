@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <ctype.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -19,6 +20,7 @@
 /*Global variables*/
 int n_staions;
 struct station_info* stations;
+pthread_mutex_t* mutex_stations;
 
 #define DUP_HELLO   -2
 #define INVALID_CMD -3
@@ -53,6 +55,7 @@ int recv_hello(int fd,struct client_info* client){
     }
     get_cmd(&hello,buf);
     client->udpPort = hello.content;
+    client->udp_addr.sin_port = htons(client->udpPort);
     return 0;
 }
 
@@ -99,7 +102,7 @@ int recv_setstation(int fd,int* stationid){
 }
 
 
-int send_Announce(int fd,struct client_info* client){
+int send_Announce(struct client_info* client){
     struct reply_String anc;
     anc.replyType = 1;
     anc.stringSize = strlen(client->station->songname);
@@ -107,7 +110,7 @@ int send_Announce(int fd,struct client_info* client){
     int buflen = 2*sizeof(uint8_t)+anc.stringSize;
     char buf[buflen];
     set_String(buf,&anc);
-    if(send(fd,buf,buflen,0) < 0){
+    if(send(client->clientfd,buf,buflen,0) < 0){
         perror("Error:send_Announce()\n");
         return -1;
     }
@@ -135,11 +138,12 @@ int send_Invalid(int fd){
 /*Add a client to a station's list*/
 
 int set_staion(struct client_info* client,int stationid){
+    pthread_mutex_lock(&mutex_stations[stationid]);
     struct station_info* newstation = &stations[stationid];
-
     client->next = newstation->clients;
     newstation->clients=client;
     client->station = newstation;
+    pthread_mutex_unlock(&mutex_stations[stationid]);
     return 0;
 }
 
@@ -148,7 +152,8 @@ int set_staion(struct client_info* client,int stationid){
 int unset_station(struct client_info* client){
     if(client->station==NULL) return 0;
     struct station_info* station = client->station;
-
+    int stationid = station->station_id;
+    pthread_mutex_lock(&mutex_stations[stationid]);
     struct client_info* tmp = station->clients;
     if(tmp==client) station->clients = station->clients->next;
     else{
@@ -162,6 +167,7 @@ int unset_station(struct client_info* client){
         else tmp->next = tmp->next->next;
     }
     client->station = NULL;
+    pthread_mutex_unlock(&mutex_stations[stationid]);
     return 0;
 
 }
@@ -171,7 +177,8 @@ int unset_station(struct client_info* client){
 void print_stations(){
     int i;
     for(i=0;i < n_staions;++i){
-        printf("Station %d playing \"%s\", listening:",stations[i].station_id,stations[i].songname);
+        printf("Station %d playing \"%s\", listening:",
+               stations[i].station_id,stations[i].songname);
         struct client_info* client = stations[i].clients;
         while(client!=NULL){
             printf("%s:%d ",inet_ntoa(client->cli_addr.sin_addr),client->udpPort);
@@ -182,9 +189,76 @@ void print_stations(){
 }
 
 
-void* handle_station_thread(void* args){
-
+void time_diff(struct timespec* start,struct timespec* end,struct timespec* result){
+    if((end->tv_nsec - start->tv_nsec) < 0){
+        result->tv_sec = end->tv_sec - start->tv_sec - 1;
+        result->tv_nsec = end->tv_nsec - start->tv_nsec + NANO_PER_SEC;
+    }else{
+        result->tv_sec = end->tv_sec - start->tv_sec;
+        result->tv_nsec = end->tv_nsec - start->tv_nsec;
+    }
 }
+
+int stream_music(struct station_info* station){
+    FILE *fp;
+    int buflen = BYTES_PER_SEC/FREQUENCY;
+    char* buffer = malloc(buflen * sizeof(char));
+    struct client_info* client;
+    struct timespec timeval,start,end;
+    fp = fopen(station->songname,"r");
+    if(fp==NULL){
+        printf("ERROR:open song file.\n");
+        return -1;
+    }
+    station->song = fp;
+
+    while(1){
+        timeval.tv_sec = 0;
+        timeval.tv_nsec = NANO_PER_SEC/FREQUENCY;
+        clock_gettime(CLOCK_REALTIME,&start);
+        int bytes;
+        if((bytes = fread(buffer,1,buflen,fp))<0){
+            perror("Error:Read files()");
+        }
+        if(feof(fp)){
+           rewind(fp);
+           /*send Announce Again*/
+           client = station->clients;
+           while(client!=NULL){
+               if(send_Announce(client)<0){
+                   perror("Error:send Announce()");
+               }
+               client = client->next;
+           }
+
+           if((bytes = fread(buffer+bytes,1,buflen-bytes,fp))<0){
+               perror("Error:Read files(),in eof loop");
+           }
+
+        }
+        client = station->clients;
+        while(client!=NULL){
+            if((bytes = sendto(station->udpfd,buffer,buflen,0,
+                  (struct sockaddr*)&client->udp_addr,sizeof(client->udp_addr)))<0){
+                perror("Error:sendto error.\n");
+            }
+            client = client->next;
+        }
+        clock_gettime(CLOCK_REALTIME,&end);
+        struct timespec tmp;
+        time_diff(&start,&end,&tmp);
+        time_diff(&tmp,&timeval,&timeval);
+        nanosleep(&timeval,NULL);
+    }
+}
+
+
+void* handle_station_thread(void* args){
+    struct station_info* station;
+    station = (struct station_info*) args;
+    stream_music(station);
+}
+
 
 
 void* handle_client_thread(void* args){
@@ -245,13 +319,14 @@ void* handle_client_thread(void* args){
             Close_Client(client);
         }
 
-        if(send_Announce(clientfd,client) < 0){
+        if(send_Announce(client) < 0){
             print_clientid(clientfd);
             perror("Error:send Announce.\n");
         }
     }
     return 0;
 }
+
 
 
 void accpet_client(int clientfd,struct sockaddr_in cli_addr){
@@ -266,6 +341,7 @@ void accpet_client(int clientfd,struct sockaddr_in cli_addr){
     pthread_detach(thread);
 }
 
+
 int open_udp(){
     int fd;
     if((fd = socket(AF_INET,SOCK_DGRAM,0)) < 0){
@@ -274,6 +350,7 @@ int open_udp(){
     }
     return fd;
 }
+
 
 
 void Close_Client(struct client_info* client){
@@ -286,12 +363,17 @@ void Close_Client(struct client_info* client){
 }
 
 
+
 int open_Server(uint16_t serverPort){
     struct sockaddr_in serv_addr;
     int sockfd;
     if((sockfd = socket(AF_INET,SOCK_STREAM,0))<0){
         error("Error opening socket.\n");
     }
+    int enable = 1;
+    //Allow server to reuse its port.
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,&enable, sizeof(int)) < 0)
+        error("setsockopt(SO_REUSEADDR) failed");
     memset((char*) &serv_addr,0,sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
@@ -303,6 +385,7 @@ int open_Server(uint16_t serverPort){
 
     return sockfd;
 }
+
 
 
 void snowcast_server(uint16_t serverPort){
@@ -349,11 +432,13 @@ void snowcast_server(uint16_t serverPort){
 }
 
 
+
 int main(int argc,char *argv[]){
     int serverPort;
     n_staions = argc -2;
-    struct song_table song_t;
     stations = malloc(n_staions*sizeof(struct station_info));
+    mutex_stations = malloc(n_staions*sizeof(pthread_mutex_t));
+    pthread_t thread[n_staions];
     if(argc < 3) {
         fprintf(stderr,"Usage: ./snowcast_server serverport songame\n");
         exit(0);
@@ -369,6 +454,8 @@ int main(int argc,char *argv[]){
         stations[i-2].song = NULL;
         stations[i-2].udpfd = open_udp();
         stations[i-2].clients = NULL;
+         pthread_mutex_init(&mutex_stations[i-2],NULL);
+        pthread_create(&thread[i-2], NULL, handle_station_thread,(void *)&stations[i-2]);
         printf("songname:%s\n",stations[i-2].songname);
     }
     snowcast_server(serverPort);
