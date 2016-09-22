@@ -7,10 +7,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <time.h>
 #include "networks.h"
 
-/*
+
 int open_client(uint16_t udpPort){
     struct sockaddr_in myaddr;
     int sockfd;
@@ -36,18 +35,20 @@ void snowcast_listener(uint16_t udpPort){
     if((clientfd = open_client(udpPort)) < 0){
         perror("Error:Fail to open client socket");
     }
-
+    struct timespec timeval,start,end;
     struct sockaddr_in servadd;
     socklen_t servadd_len;
 
-    int buflen = BYTES_TO_RECV;
+    int buflen = BYTES_PER_SEC/FREQUENCY;
     char buffer[buflen];
 
 
     while(1){
+           timeval.tv_sec = 0;
+           timeval.tv_nsec = NANO_PER_SEC/FREQUENCY;
+           clock_gettime(CLOCK_REALTIME,&start);
            int bytes;
            bytes = recvfrom(clientfd,buffer,buflen,0,(struct sockaddr*) &servadd,&servadd_len);
-
            if(bytes < 0){
                perror("Error:recv from server");
                close(clientfd);
@@ -61,6 +62,11 @@ void snowcast_listener(uint16_t udpPort){
                close(clientfd);
                exit(1);
            }
+           clock_gettime(CLOCK_REALTIME,&end);
+           struct timespec tmp;
+           time_diff(&start,&end,&tmp);
+           time_diff(&tmp,&timeval,&timeval);
+           nanosleep(&timeval,NULL);
 
     }
 
@@ -84,4 +90,4 @@ int main(int argc,char* argv[]){
     snowcast_listener(udpPort);
     return 0;
 }
-*/
+

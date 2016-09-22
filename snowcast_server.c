@@ -13,6 +13,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/syscall.h>
+#include <poll.h>
 #include "networks.h"
 
 
@@ -22,9 +23,49 @@ int n_staions;
 struct station_info* stations;
 pthread_mutex_t* mutex_stations;
 
-#define DUP_HELLO   -2
-#define INVALID_CMD -3
-#define CLI_CLOSE   -4
+#define DUP_HELLO        -2
+#define INVALID_CMD      -3
+#define CLI_CLOSE        -4
+#define WRONG_STATIONNUM -5
+
+
+/*function declearation*/
+int recv_hello(int fd,struct client_info* client);
+
+int send_welcome(int fd);
+
+int recv_setstation(struct client_info* client,int* stationid);
+
+int send_Announce(struct client_info* client);
+
+int send_Invalid(int fd,char* invalid_info);
+
+int set_staion(struct client_info* client,int stationid);
+
+int unset_station(struct client_info* client);
+
+void print_stations();
+
+void time_diff(struct timespec* start,struct timespec* end,struct timespec* result);
+
+int stream_music(struct station_info* station);
+
+void* handle_station_thread(void* args);
+
+void* handle_client_thread(void* args);
+
+void accpet_client(int clientfd,struct sockaddr_in cli_addr);
+
+int open_udp();
+
+void Close_Client(struct client_info* client);
+
+int open_Server(uint16_t serverPort);
+
+void snowcast_server(uint16_t serverPort);
+
+
+/*function implementation*/
 
 void error(const char *msg)
 {
@@ -41,24 +82,39 @@ int recv_hello(int fd,struct client_info* client){
     int buflen = sizeof(uint8_t)+sizeof(uint16_t);
     char buf[buflen];
     memset(buf,0,sizeof(buf));
-
-    int bytes;
-
-    bytes = recv(fd,buf,buflen,0);
-    if(bytes < 0){
-        perror("Error:recv_hello()");
-        return -1;
+    /*set timeout to 100ms*/
+    int ret;
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    ret = poll(&pfd,1,100);
+    if(ret == -1){
+        perror("Error:poll()\n");
     }
-    else if(bytes == 0){
-        perror("Error:Client closed.\n");
-        return -1;
+    else if(ret == 0){
+        perror("Error:Timeout in recv_hello();Closing Client");
+        Close_Client(client);
     }
-    get_cmd(&hello,buf);
-    client->udpPort = hello.content;
-    client->udp_addr.sin_port = htons(client->udpPort);
+    else{
+        int bytes;
+        bytes = recv(fd,buf,buflen,0);
+        if(bytes < 0){
+            perror("Error:recv_hello()");
+            return -1;
+        }
+        else if(bytes == 0){
+            perror("Error:Client closed.\n");
+            return -1;
+        }
+        get_cmd(&hello,buf);
+        if(hello.commandType!=0){
+            return INVALID_CMD;
+        }
+        client->udpPort = hello.content;
+        client->udp_addr.sin_port = htons(client->udpPort);
+    }
     return 0;
 }
-
 
 int send_welcome(int fd){
     struct reply_welcome wel;
@@ -74,17 +130,16 @@ int send_welcome(int fd){
     return 0;
 }
 
-
-int recv_setstation(int fd,int* stationid){
+int recv_setstation(struct client_info* client,int* stationid){
 
     struct cmd_command set_station;
     int buflen = sizeof(uint8_t)+sizeof(uint16_t);
     char buf[buflen];
     memset(buf,0,sizeof(buf));
 
-    int bytes;
 
-    bytes = recv(fd,buf,buflen,0);
+    int bytes;
+    bytes = recv(client->clientfd,buf,buflen,0);
     if(bytes < 0){
         perror("Error:recv_setstation() ");
         return -1;
@@ -97,10 +152,11 @@ int recv_setstation(int fd,int* stationid){
     if(set_station.commandType == 0){
         return DUP_HELLO;
     }
-    else if(set_station.commandType != 1 || *stationid >= n_staions || *stationid<0) return INVALID_CMD;
+    else if(*stationid >= n_staions || *stationid<0) return WRONG_STATIONNUM;
+    else if(set_station.commandType != 1)return INVALID_CMD;
+
     return 0;
 }
-
 
 int send_Announce(struct client_info* client){
     struct reply_String anc;
@@ -118,9 +174,7 @@ int send_Announce(struct client_info* client){
 }
 
 /*Send an invlid string to client*/
-
-int send_Invalid(int fd){
-    char invalid_info[128] = "server received a SET_STATION command with an invalid station number";
+int send_Invalid(int fd,char* invalid_info){
     struct reply_String invalid;
     invalid.replyType = 2;
     invalid.stringSize = strlen(invalid_info);
@@ -136,7 +190,6 @@ int send_Invalid(int fd){
 }
 
 /*Add a client to a station's list*/
-
 int set_staion(struct client_info* client,int stationid){
     pthread_mutex_lock(&mutex_stations[stationid]);
     struct station_info* newstation = &stations[stationid];
@@ -148,7 +201,6 @@ int set_staion(struct client_info* client,int stationid){
 }
 
 /*remove a client from its previous station's list*/
-
 int unset_station(struct client_info* client){
     if(client->station==NULL) return 0;
     struct station_info* station = client->station;
@@ -173,7 +225,6 @@ int unset_station(struct client_info* client){
 }
 
 /* print all stations information*/
-
 void print_stations(){
     int i;
     for(i=0;i < n_staions;++i){
@@ -189,15 +240,6 @@ void print_stations(){
 }
 
 
-void time_diff(struct timespec* start,struct timespec* end,struct timespec* result){
-    if((end->tv_nsec - start->tv_nsec) < 0){
-        result->tv_sec = end->tv_sec - start->tv_sec - 1;
-        result->tv_nsec = end->tv_nsec - start->tv_nsec + NANO_PER_SEC;
-    }else{
-        result->tv_sec = end->tv_sec - start->tv_sec;
-        result->tv_nsec = end->tv_nsec - start->tv_nsec;
-    }
-}
 
 int stream_music(struct station_info* station){
     FILE *fp;
@@ -211,7 +253,6 @@ int stream_music(struct station_info* station){
         return -1;
     }
     station->song = fp;
-
     while(1){
         timeval.tv_sec = 0;
         timeval.tv_nsec = NANO_PER_SEC/FREQUENCY;
@@ -220,22 +261,28 @@ int stream_music(struct station_info* station){
         if((bytes = fread(buffer,1,buflen,fp))<0){
             perror("Error:Read files()");
         }
-        if(feof(fp)){
-           rewind(fp);
-           /*send Announce Again*/
-           client = station->clients;
-           while(client!=NULL){
-               if(send_Announce(client)<0){
-                   perror("Error:send Announce()");
+        int sent_bytes = bytes;
+        while(sent_bytes <= buflen){
+            if(feof(fp)){
+               rewind(fp);
+               /*send Announce Again*/
+               pthread_mutex_lock(&mutex_stations[station->station_id]);
+               client = station->clients;
+               while(client!=NULL){
+                   if(send_Announce(client)<0){
+                       perror("Error:send Announce()");
+                   }
+                   client = client->next;
                }
-               client = client->next;
-           }
-
-           if((bytes = fread(buffer+bytes,1,buflen-bytes,fp))<0){
-               perror("Error:Read files(),in eof loop");
-           }
-
+               pthread_mutex_unlock(&mutex_stations[station->station_id]);
+               if((bytes = fread(buffer+sent_bytes,1,buflen-sent_bytes,fp))<0){
+                   perror("Error:Read files(),in eof loop");
+               }
+               sent_bytes += bytes;
+            }
+            else break;
         }
+        pthread_mutex_lock(&mutex_stations[station->station_id]);
         client = station->clients;
         while(client!=NULL){
             if((bytes = sendto(station->udpfd,buffer,buflen,0,
@@ -244,6 +291,7 @@ int stream_music(struct station_info* station){
             }
             client = client->next;
         }
+        pthread_mutex_unlock(&mutex_stations[station->station_id]);
         clock_gettime(CLOCK_REALTIME,&end);
         struct timespec tmp;
         time_diff(&start,&end,&tmp);
@@ -252,11 +300,11 @@ int stream_music(struct station_info* station){
     }
 }
 
-
 void* handle_station_thread(void* args){
     struct station_info* station;
     station = (struct station_info*) args;
     stream_music(station);
+    return 0;
 }
 
 
@@ -268,28 +316,54 @@ void* handle_client_thread(void* args){
     int clientfd = client->clientfd;
     print_clientid(clientfd);
     printf("new client connected;expecting HELLO\n");
-    if(recv_hello(clientfd,client) < 0){
-        perror("Error:receive Hello.\n");
-        Close_Client(client);
+    int ret;
+    if((ret = recv_hello(clientfd,client)) < 0){
+        /* if any cmd is received before hello,close the connection*/
+        if(ret == INVALID_CMD){
+            perror("Error:receive INVALID_CMD before HELLO");
+            Close_Client(client);
+        }
+        else{
+            perror("Error:receive Hello.\n");
+            Close_Client(client);
+        }
     }
     if(send_welcome(clientfd)<0){
         perror("Error:send Welcome.\n");
     }
     print_clientid(clientfd);
     printf("HELLO received;sending WELCOME, expecting SET_STATION\n");
-
+    client->state = RCV_WEL;
     while(1){
         int ret;
-        if((ret = recv_setstation(clientfd,&stationid)) < 0){
+        if((ret = recv_setstation(client,&stationid)) < 0){
             if(ret == DUP_HELLO){
+                char invalid_info[128] = "server received more than one HELLO";
                 print_clientid(clientfd);
-                perror("Error:receive duplicate HELLO.\n");
+                printf("Error:%s;closing connection\n",invalid_info);
+                if(send_Invalid(clientfd,invalid_info)<0){
+                    print_clientid(clientfd);
+                    perror("Error:send Invalid.\n");
+                    exit(1);
+                }
+                Close_Client(client);
+            }
+            else if(ret == WRONG_STATIONNUM){
+                print_clientid(clientfd);
+                char invalid_info[128] = "server received a SET_STATION command with an invalid station number";
+                printf("Error:%s;closing connection\n",invalid_info);
+                if(send_Invalid(clientfd,invalid_info)<0){
+                    print_clientid(clientfd);
+                    perror("Error:send Invalid.\n");
+                    exit(1);
+                }
                 Close_Client(client);
             }
             else if(ret == INVALID_CMD){
                 print_clientid(clientfd);
-                printf("received request for invalid station,sending INVALID_COMMAND;closing connection\n");
-                if(send_Invalid(clientfd)<0){
+                char invalid_info[128] = "server received a INVALID_COMMAND";
+                printf("Error:%s;closing connection\n",invalid_info);
+                if(send_Invalid(clientfd,invalid_info)<0){
                     print_clientid(clientfd);
                     perror("Error:send Invalid.\n");
                     exit(1);
@@ -306,6 +380,7 @@ void* handle_client_thread(void* args){
                 Close_Client(client);
             }
         }
+        client->state = SEND_SET;
         print_clientid(clientfd);
         printf("received SET_STATION to station %d\n",stationid);
         if(unset_station(client) < 0){
@@ -323,10 +398,10 @@ void* handle_client_thread(void* args){
             print_clientid(clientfd);
             perror("Error:send Announce.\n");
         }
+        client->state = RCV_ANC;
     }
     return 0;
 }
-
 
 
 void accpet_client(int clientfd,struct sockaddr_in cli_addr){
@@ -334,6 +409,7 @@ void accpet_client(int clientfd,struct sockaddr_in cli_addr){
     cl->clientfd = clientfd;
     cl->cli_addr = cli_addr;
     cl->udp_addr = cli_addr;
+    cl->state = FIR_CON;
     cl->station  = NULL;
     cl->next = NULL;
     pthread_t thread;
@@ -363,7 +439,6 @@ void Close_Client(struct client_info* client){
 }
 
 
-
 int open_Server(uint16_t serverPort){
     struct sockaddr_in serv_addr;
     int sockfd;
@@ -374,6 +449,12 @@ int open_Server(uint16_t serverPort){
     //Allow server to reuse its port.
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,&enable, sizeof(int)) < 0)
         error("setsockopt(SO_REUSEADDR) failed");
+
+    /*
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
+    setsockopt(sockfd,SOL_SOCKET,SO_RCVTIMEO,(char*)&tv,sizeof(struct timeval));*/
     memset((char*) &serv_addr,0,sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
@@ -386,7 +467,22 @@ int open_Server(uint16_t serverPort){
     return sockfd;
 }
 
-
+void Close_Server(){
+    int i;
+    for(i = 0;i < n_staions;++i){
+        struct client_info* client;
+        struct client_info* tmp;
+        client = stations->clients;
+        while(client){
+            tmp = client->next;
+            close(client->clientfd);
+            free(client);
+            client = tmp;
+        }
+    }
+    free(stations);
+    free(mutex_stations);
+}
 
 void snowcast_server(uint16_t serverPort){
     int serverfd,newsockfd;
@@ -416,7 +512,7 @@ void snowcast_server(uint16_t serverPort){
                 if(c!='\n'){
                     if(c=='q'){
                         printf("Quit.Goodbye.\n");
-                        exit(0);
+                        Close_Server();
                     }
                     else if(c=='p'){
                         print_stations();
@@ -430,7 +526,6 @@ void snowcast_server(uint16_t serverPort){
     }
 
 }
-
 
 
 int main(int argc,char *argv[]){

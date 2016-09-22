@@ -18,6 +18,8 @@
 #define FREQUENCY 16
 #define BUF_LEN_MAX 512
 
+#define BYTES_PER_CMD 3
+
 #define NANO_PER_SEC 1000000000
 
 #define FIR_CON  0

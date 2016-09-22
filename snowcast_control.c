@@ -14,7 +14,7 @@
 
 
 
-/*
+
 void error(const char *msg){
   perror(msg);
   exit(0);
@@ -50,8 +50,7 @@ int send_setstation(int fd,uint16_t stationNumber){
     return 0;
 }
 
-int recv_welcome(int fd,int *n_stations){
-    struct reply_welcome welcome;
+int recv_welcome(int fd,struct reply_welcome* wel){
     int buflen = sizeof(uint8_t)+sizeof(uint16_t);
     char buf[buflen];
     memset(buf,0,sizeof(buf));
@@ -69,8 +68,7 @@ int recv_welcome(int fd,int *n_stations){
         close(fd);
         exit(1);
     }
-    get_welcome(buf,&welcome);
-    *n_stations = welcome.numStations;
+    get_welcome(buf,wel);
     return 0;
 }
 
@@ -122,12 +120,14 @@ int open_client(const char* hostname,int ServerPort){
 }
 
 void snowcast_control(const char* hostname,int ServerPort,int udpPort){
-    int sockfd,n_stations,state;
+    int sockfd,state;
     struct reply_String str;
-    state = REP_WEL;
+    struct reply_welcome wel;
+    state = DEFAULT;
     sockfd = open_client(hostname,ServerPort);
     printf("Send Hello Command to the Server\n");
     send_hello(sockfd,udpPort);
+    state = WAIT_WEL;
     printf("Type in a number to set the station we're listening to to that number.\n");
     printf("Type in 'q' or press CTRL+C to quit.\n");
 
@@ -148,22 +148,43 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
         }
         else{
             if(FD_ISSET(sockfd,&readfd)){
-                if(state == REP_WEL){
-                    recv_welcome(sockfd,&n_stations);
-                    printf("> Receive WELCOME message.The station numbers are %d\n> ",n_stations);
-                    fflush(stdout);
+                if(state == DEFAULT){
+                    perror("> Error:Receive something before send HELLO.Closing connection\n");
+                    exit(1);
                 }
-                else if(state == REP_ANC){
+                if(state == WAIT_WEL){
+                    recv_welcome(sockfd,&wel);
+                    if(wel.replyType == 0){
+                        printf("> Receive WELCOME message.The station numbers are %d\n> ",wel.numStations);
+                        fflush(stdout);
+                    }
+                    else if(wel.replyType == 1){
+                        perror("Error:Receive announce before set_station.Closing connection\n");
+                        exit(1);
+                    }
+                    else{
+                        perror("> An unknown response was received.Closing connection\n");
+                        exit(1);
+                    }
+                }
+                else if(state == WAIT_ANC){
                     recv_String(sockfd,&str);
                     if(str.replyType == 1){
                         printf("New song announced: %s\n> ",str.stringContent);
                         fflush(stdout);
                     }
-                    else{
-                        printf("INVALID_COMMAND_REPLY:%s\n",str.stringContent);
+                    else if(str.replyType == 0){
+                        perror("> Error:receive more than one welcome.Closing connection\n");
                         exit(1);
                     }
-
+                    else if(str.replyType == 2){
+                        printf("> INVALID_COMMAND_REPLY:%s.Closing connection\n",str.stringContent);
+                        exit(1);
+                    }
+                    else{
+                        perror("> An unknown response was received.Closing connection\n");
+                        exit(1);
+                    }
                 }
             }
             else if(FD_ISSET(fileno(stdin),&readfd)){
@@ -182,7 +203,7 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                 }
                 else{
                     send_setstation(sockfd,num);
-                    state = REP_ANC;
+                    state = WAIT_ANC;
                     printf("Waiting for an announce...\n");
 
                 }            
@@ -211,4 +232,3 @@ int main(int argc,char* argv[]){
     return 0;
 }
 
-*/
