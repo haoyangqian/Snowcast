@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <poll.h>
 #include "networks.h"
 
 
@@ -27,6 +28,19 @@ int send_hello(int fd,uint16_t udpPort){
     int buflen = sizeof(uint8_t)+sizeof(uint16_t);
     char buf[buflen];
     set_cmd(buf,&hello);
+    if(send(fd,buf,buflen,0) < 0){
+        perror("Error:send()");
+        close(fd);
+        exit(1);
+    }
+    return 0;
+}
+
+/*just to test the timeout situation*/
+int send_timeout_hello(int fd){
+    int buflen = 1;
+    char buf[1];
+    *buf = 0;
     if(send(fd,buf,buflen,0) < 0){
         perror("Error:send()");
         close(fd);
@@ -54,19 +68,36 @@ int recv_welcome(int fd,struct reply_welcome* wel){
     int buflen = sizeof(uint8_t)+sizeof(uint16_t);
     char buf[buflen];
     memset(buf,0,sizeof(buf));
-
+    /*set timeout to 100ms*/
+    int ret;
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    int total_bytes = 0;
     int bytes;
 
-    bytes = recv(fd,buf,buflen,0);
-    if(bytes < 0){
-        perror("Error:recv()");
-        close(fd);
-        exit(1);
-    }
-    else if(bytes == 0){
-        perror("Error:Server closed.\n");
-        close(fd);
-        exit(1);
+    while(total_bytes < buflen){
+        bytes = recv(fd,buf+total_bytes,buflen-total_bytes,0);
+        total_bytes += bytes;
+        if(bytes < 0){
+            perror("Error:recv()");
+            close(fd);
+            exit(1);
+        }
+        else if(bytes == 0){
+            perror("Error:Server closed.\n");
+            close(fd);
+            exit(1);
+        }
+        else if(total_bytes < buflen){
+            ret = poll(&pfd,1,100);
+            if(ret == 0){
+                perror("Error:Timeout in recv_hello();Missing Bytes.Closing Client");
+                close(fd);
+                exit(1);
+            }
+        }
+
     }
     get_welcome(buf,wel);
     return 0;
@@ -74,22 +105,43 @@ int recv_welcome(int fd,struct reply_welcome* wel){
 
 int recv_String(int fd,struct reply_String* string){
     int buflen = BUF_LEN_MAX;
+    int actual_len = buflen;
     char buf[buflen];
     memset(buf,0,sizeof(buf));
 
+    /*set timeout to 100ms*/
+    int ret;
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    int total_bytes = 0;
     int bytes;
 
-    bytes = recv(fd,buf,buflen,0);
-
-    if(bytes < 0){
-        perror("Error:recv()\n");
-        close(fd);
-        exit(1);
-    }
-    else if(bytes == 0){
-        perror("Error:Server closed.\n");
-        close(fd);
-        exit(1);
+    while(total_bytes < actual_len){
+        bytes = recv(fd,buf,buflen,0);
+        total_bytes += bytes;
+        if(bytes < 0){
+            perror("Error:recv()\n");
+            close(fd);
+            exit(1);
+        }
+        else if(bytes == 0){
+            perror("Error:Server closed the connection.\n");
+            close(fd);
+            exit(1);
+        }
+        else if(total_bytes >= 2 && actual_len == BUF_LEN_MAX){
+            actual_len = (int)*(buf+1) + 2;
+            //printf("actual bytes:%d;totalbytes:%d\n",actual_len,total_bytes);
+        }
+        else if(total_bytes < actual_len){
+            ret = poll(&pfd,1,100);
+            if(ret == 0){
+                perror("Error:Timeout in recv_hello();Missing Bytes.Closing Client");
+                close(fd);
+                exit(1);
+            }
+        }
     }
     get_String(buf,string);
     return 0;
@@ -126,7 +178,9 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
     state = DEFAULT;
     sockfd = open_client(hostname,ServerPort);
     printf("Send Hello Command to the Server\n");
+    //sleep(1);
     send_hello(sockfd,udpPort);
+    //send_timeout_hello(sockfd);
     state = WAIT_WEL;
     printf("Type in a number to set the station we're listening to to that number.\n");
     printf("Type in 'q' or press CTRL+C to quit.\n");
@@ -160,6 +214,10 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                     }
                     else if(wel.replyType == 1){
                         perror("Error:Receive announce before set_station.Closing connection\n");
+                        exit(1);
+                    }
+                    else if(wel.replyType == 2){
+                        printf("> INVALID_COMMAND_REPLY:%s.Closing connection\n",str.stringContent);
                         exit(1);
                     }
                     else{
@@ -206,7 +264,7 @@ void snowcast_control(const char* hostname,int ServerPort,int udpPort){
                     state = WAIT_ANC;
                     printf("Waiting for an announce...\n");
 
-                }            
+                }
             }
         }
     }

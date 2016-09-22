@@ -96,15 +96,27 @@ int recv_hello(int fd,struct client_info* client){
         Close_Client(client);
     }
     else{
+        int total_bytes = 0;
         int bytes;
-        bytes = recv(fd,buf,buflen,0);
-        if(bytes < 0){
-            perror("Error:recv_hello()");
-            return -1;
-        }
-        else if(bytes == 0){
-            perror("Error:Client closed.\n");
-            return -1;
+        while(total_bytes < buflen){
+            bytes = recv(fd,buf + total_bytes,buflen - total_bytes,0);
+            total_bytes += bytes;
+            if(bytes < 0){
+                printf("Error:recv_hello(),bytes:%d",bytes);
+                return -1;
+            }
+            else if(bytes == 0){
+                perror("Error:Client closed.\n");
+                return -1;
+            }
+            else if(total_bytes < buflen){
+                ret = poll(&pfd,1,100);
+                if(ret == 0){
+                    perror("Error:Timeout in recv_hello();Missing Bytes.Closing Client");
+                    Close_Client(client);
+                }
+            }
+
         }
         get_cmd(&hello,buf);
         if(hello.commandType!=0){
@@ -137,16 +149,34 @@ int recv_setstation(struct client_info* client,int* stationid){
     char buf[buflen];
     memset(buf,0,sizeof(buf));
 
-
+    /*set timeout to 100ms*/
+    int ret;
+    struct pollfd pfd;
+    pfd.fd = client->clientfd;
+    pfd.events = POLLIN;
+    int total_bytes = 0;
     int bytes;
-    bytes = recv(client->clientfd,buf,buflen,0);
-    if(bytes < 0){
-        perror("Error:recv_setstation() ");
-        return -1;
+
+    while(total_bytes < buflen){
+        bytes = recv(client->clientfd,buf+total_bytes,buflen-total_bytes,0);
+        total_bytes+=bytes;
+        if(bytes < 0){
+            perror("Error:recv_setstation() ");
+            return -1;
+        }
+        else if(bytes == 0){
+            return CLI_CLOSE;
+        }
+        else if(total_bytes < buflen){
+            ret = poll(&pfd,1,100);
+            if(ret == 0){
+                perror("Error:Timeout in recv_setstation();Missing Bytes.Closing Client");
+                Close_Client(client);
+            }
+        }
+
     }
-    else if(bytes == 0){
-        return CLI_CLOSE;
-    }
+
     get_cmd(&set_station,buf);
     *stationid = set_station.content;
     if(set_station.commandType == 0){
