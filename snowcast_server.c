@@ -258,6 +258,7 @@ int unset_station(struct client_info* client){
 void print_stations(){
     int i;
     for(i=0;i < n_staions;++i){
+        pthread_mutex_lock(&mutex_stations[i]);
         printf("Station %d playing \"%s\", listening:",
                stations[i].station_id,stations[i].songname);
         struct client_info* client = stations[i].clients;
@@ -266,6 +267,7 @@ void print_stations(){
             client = client->next;
         }
         printf("\n");
+        pthread_mutex_unlock(&mutex_stations[i]);
     }
 }
 
@@ -509,9 +511,11 @@ void Close_Server(){
             free(client);
             client = tmp;
         }
+        fclose(stations->song);
     }
     free(stations);
     free(mutex_stations);
+    exit(1);
 }
 
 void snowcast_server(uint16_t serverPort){
